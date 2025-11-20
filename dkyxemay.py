@@ -182,7 +182,7 @@ def show_login_page():
     password = st.text_input("Mật khẩu", type="password")
 
     if st.button("Đăng nhập"):
-        if username.trim() == "" or password.strip() == "":
+        if username.strip() == "" or password.strip() == "":
             st.error("Vui lòng nhập đầy đủ username và mật khẩu.")
         else:
             ok = login(username, password)
