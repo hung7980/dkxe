@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+import json 
 
 # =========================
 # 1. KẾT NỐI GOOGLE SHEETS
@@ -9,7 +10,20 @@ import pandas as pd
 
 @st.cache_resource
 def get_gsheet_client():
-    sa_info = st.secrets["gcp_service_account"]
+    # Lấy JSON service account từ secrets
+    raw_sa = st.secrets["gcp_service_account"]
+
+    # Nếu Boss đang lưu nguyên file JSON trong secrets (dạng chuỗi) thì cần parse
+    if isinstance(raw_sa, str):
+        try:
+            sa_info = json.loads(raw_sa)
+        except Exception as e:
+            st.error("Không đọc được JSON trong gcp_service_account (secrets). Vui lòng kiểm tra lại.\n\nChi tiết: " + str(e))
+            st.stop()
+    else:
+        # Trường hợp Boss cấu hình theo dạng [gcp_service_account] trong TOML,
+        # st.secrets trả về dạng “dict-like”, dùng luôn được
+        sa_info = dict(raw_sa)
 
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -195,7 +209,7 @@ def show_login_page():
 
 def show_admin_editor():
     st.subheader("Quản trị: Cập nhật / sửa toàn bộ dữ liệu")
-    st.caption("Chỉ nên dùng với tài khoản admin. Mọi thay đổi sẽ ghi trực tiếp lên Google Sheet.")
+    st.caption("Chỉ nên dùng với tài khoản admin. Mọi thay đổi sẽ ghi trực tiếp lên csdl.")
 
     df = load_users_df()
     edited_df = st.data_editor(
