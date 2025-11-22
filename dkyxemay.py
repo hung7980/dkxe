@@ -332,7 +332,7 @@ def update_vehicle(ten_pt, loai_pt, bien_so):
 # =========================
 
 def show_login_page():
-    st.title("Đăng nhập hệ thống đăng ký phương tiện đến Trường THPT Nguyễn Trãi.")
+    st.title("Đăng nhập hệ thống quản lý phương tiện đến Trường THPT Nguyễn Trãi.")
 
     username = st.text_input("Tên đăng nhập (Mã Moet của học sinh)")
     password = st.text_input("Mật khẩu", type="password")
