@@ -76,7 +76,7 @@ def ensure_column(ws, col_name):
 
 def init_session_state():
     if "user" not in st.session_state:
-        st.session_state.user = None  # {"username", "row_index", "full_name", "first_login_done", "data"}
+        st.session_state.user = None  # {"username","row_index","full_name","first_login_done","data"}
     if "page" not in st.session_state:
         st.session_state.page = "login"
     if "show_change_pw" not in st.session_state:
@@ -194,7 +194,7 @@ def update_password_first_login(selected_lop, selected_namhoc, new_password, con
     sheet_row_number = row_idx + 2  # df index 0 tương ứng với dòng 2 trên sheet
 
     # Xác định cột password, lớp, năm học
-    password_col_name = find_column(df, ["password", "matkhau, pass"])
+    password_col_name = find_column(df, ["password", "matkhau", "pass"])
     lop_col_name = find_column(df, ["lop", "lớp", "tenlop", "ten_lop", "class"])
     namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
 
@@ -238,12 +238,9 @@ def update_password_first_login(selected_lop, selected_namhoc, new_password, con
         st.experimental_rerun()
 
 
-
-
-
-def update_password_later(new_password, confirm_password):
+def update_password_later(selected_lop, selected_namhoc, new_password, confirm_password):
     """
-    Đổi mật khẩu cho các lần đăng nhập sau (chỉ đổi password).
+    Đổi mật khẩu + cập nhật LỚP & NĂM HỌC cho các lần đăng nhập sau.
     """
     if st.session_state.user is None:
         st.error("Bạn chưa đăng nhập.")
@@ -267,16 +264,36 @@ def update_password_later(new_password, confirm_password):
     sheet_row_number = row_idx + 2
 
     password_col_name = find_column(df, ["password", "matkhau", "pass"])
+    lop_col_name = find_column(df, ["lop", "lớp", "tenlop", "ten_lop", "class"])
+    namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
+
     if password_col_name is None:
         st.error("Không tìm thấy cột password trong Google Sheet.")
         return
 
+    # Cập nhật mật khẩu
     pass_col_num = ensure_column(ws, password_col_name)
     ws.update_cell(sheet_row_number, pass_col_num, new_password)
 
+    # Cập nhật lớp
+    if lop_col_name is not None and selected_lop:
+        lop_col_num = ensure_column(ws, lop_col_name)
+        ws.update_cell(sheet_row_number, lop_col_num, selected_lop)
+
+    # Cập nhật năm học
+    if namhoc_col_name is not None and selected_namhoc:
+        namhoc_col_num = ensure_column(ws, namhoc_col_name)
+        ws.update_cell(sheet_row_number, namhoc_col_num, selected_namhoc)
+
     load_users_df.clear()
+
     st.session_state.user["data"]["password"] = new_password
-    st.success("Đổi mật khẩu thành công.")
+    if lop_col_name is not None and selected_lop:
+        st.session_state.user["data"][lop_col_name] = selected_lop
+    if namhoc_col_name is not None and selected_namhoc:
+        st.session_state.user["data"][namhoc_col_name] = selected_namhoc
+
+    st.success("Đã cập nhật mật khẩu, lớp và năm học.")
 
 
 def update_vehicle(ten_pt, loai_pt, bien_so):
@@ -363,34 +380,58 @@ def show_main_page():
 
     st.markdown("---")
 
-   
+    # Lấy thông tin lớp & năm học hiện tại
+    lop_col_name = find_column(df, ["lop", "lớp", "tenlop", "ten_lop", "class"])
+    namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
 
-    # ========== A. LẦN ĐĂNG NHẬP ĐẦU TIÊN: BẮT BUỘC ĐỔI MẬT KHẨU + NĂM HỌC ==========
+    current_lop = str(row.get(lop_col_name, "")).strip() if lop_col_name else ""
+    current_namhoc = str(row.get(namhoc_col_name, "")).strip() if namhoc_col_name else ""
+
+    # Danh sách LỚP từ sheet
+    lop_options = []
+    if lop_col_name is not None:
+        lop_options = sorted(
+            [str(x) for x in df[lop_col_name].dropna().unique().tolist()]
+        )
+    if not lop_options:
+        if current_lop:
+            lop_options = [current_lop]
+        else:
+            lop_options = ["10A1", "10A2", "11A1", "12A1"]
+    default_lop_index = (
+        lop_options.index(current_lop) if current_lop in lop_options else 0
+    )
+
+    # Danh sách NĂM HỌC từ sheet
+    namhoc_options = []
+    if namhoc_col_name is not None:
+        namhoc_options = sorted(
+            [str(x) for x in df[namhoc_col_name].dropna().unique().tolist()]
+        )
+    if not namhoc_options:
+        namhoc_options = ["2024-2025", "2025-2026", "2026-2027"]
+
+    default_namhoc_index = (
+        namhoc_options.index(current_namhoc) if current_namhoc in namhoc_options else 0
+    )
+
+    # ========== A. LẦN ĐĂNG NHẬP ĐẦU TIÊN ==========
     if not first_login_done:
         st.subheader("Thiết lập tài khoản lần đầu")
-        st.info("Đây là lần đăng nhập đầu tiên của bạn. Vui lòng đổi mật khẩu và chọn năm học, sau đó bấm **Lưu**.")
-
-        # Lấy danh sách năm học duy nhất
-        namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
-        namhoc_options = []
-        current_namhoc = ""
-        if namhoc_col_name is not None:
-            namhoc_options = sorted(
-                [str(x) for x in df[namhoc_col_name].dropna().unique().tolist()]
-            )
-            current_namhoc = str(row.get(namhoc_col_name, "")).strip()
-
-        if not namhoc_options:
-            namhoc_options = ["2024-2025", "2025-2026", "2026-2027"]
-
-        default_namhoc_index = (
-            namhoc_options.index(current_namhoc)
-            if current_namhoc in namhoc_options
-            else 0
+        st.info(
+            "Đây là lần đăng nhập đầu tiên của bạn. "
+            "Vui lòng chọn **Lớp**, **Năm học** và đổi mật khẩu, sau đó bấm **Lưu**."
         )
 
         with st.form("first_login_form"):
             st.text_input("Họ và tên", value=full_name, disabled=True)
+
+            selected_lop = st.selectbox(
+                "Lớp",
+                options=lop_options,
+                index=default_lop_index,
+            )
+
             selected_namhoc = st.selectbox(
                 "Năm học",
                 options=namhoc_options,
@@ -403,29 +444,44 @@ def show_main_page():
             submitted_first = st.form_submit_button("Lưu")
 
             if submitted_first:
-                update_password_first_login(selected_namhoc, new_password, confirm_password)
+                update_password_first_login(selected_lop, selected_namhoc, new_password, confirm_password)
 
         # Chưa xong lần đăng nhập đầu thì KHÔNG cho vào phần phương tiện
         return
 
-
-    # ========== B. CÁC LẦN ĐĂNG NHẬP SAU: NÚT THAY ĐỔI MẬT KHẨU ==========
+    # ========== B. CÁC LẦN ĐĂNG NHẬP SAU: THAY ĐỔI MẬT KHẨU / LỚP / NĂM HỌC ==========
     st.subheader("Thông tin tài khoản")
 
     col_pw1, col_pw2 = st.columns([1, 3])
     with col_pw1:
-        if st.button("Thay đổi mật khẩu"):
+        if st.button("Thay đổi mật khẩu / lớp / năm học"):
             st.session_state.show_change_pw = not st.session_state.show_change_pw
 
     with col_pw2:
         if st.session_state.show_change_pw:
             with st.form("change_pw_form"):
+                st.text_input("Họ và tên", value=full_name, disabled=True)
+
+                selected_lop = st.selectbox(
+                    "Lớp",
+                    options=lop_options,
+                    index=default_lop_index,
+                    key="lop_change",
+                )
+
+                selected_namhoc = st.selectbox(
+                    "Năm học",
+                    options=namhoc_options,
+                    index=default_namhoc_index,
+                    key="namhoc_change",
+                )
+
                 new_pw = st.text_input("Mật khẩu mới", type="password")
                 confirm_pw = st.text_input("Xác nhận mật khẩu mới", type="password")
-                submitted_change = st.form_submit_button("Lưu mật khẩu")
+                submitted_change = st.form_submit_button("Lưu thay đổi")
 
                 if submitted_change:
-                    update_password_later(new_pw, confirm_pw)
+                    update_password_later(selected_lop, selected_namhoc, new_pw, confirm_pw)
 
     st.markdown("---")
 
@@ -441,7 +497,6 @@ def show_main_page():
         "Phương tiện khác",
     ]
 
-    # Giá trị mặc định (nếu đã từng lưu)
     ten_pt_default = str(row.get("ten_phuong_tien", "")).strip()
     loai_pt_default = str(row.get("loai_phuong_tien", vehicle_options[0])).strip()
     bien_so_default = str(row.get("bien_so", "")).strip()
