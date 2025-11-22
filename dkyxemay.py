@@ -288,7 +288,6 @@ def show_main_page():
     elif hasattr(st, "experimental_rerun"):
         st.experimental_rerun()
    
-
     st.markdown("---")
 
     # ======= LẤY DỮ LIỆU HIỆN TẠI CỦA USER & DANH SÁCH LỚP / NĂM HỌC =======
