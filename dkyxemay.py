@@ -5,7 +5,7 @@ import pandas as pd
 import json
 
 # =========================
-# 1. KẾT NỐI GOOGLE SHEETS
+# 1. KẾT NỐI CSDL
 # =========================
 
 @st.cache_resource
@@ -57,7 +57,7 @@ def get_worksheet():
 
 def ensure_column(ws, col_name):
     """
-    Đảm bảo cột col_name tồn tại trên Google Sheet.
+    Đảm bảo cột col_name tồn tại trên CSDL.
     Trả về số thứ tự cột (1-based).
     Nếu chưa có thì tự thêm vào header (hàng 1).
     """
@@ -99,7 +99,7 @@ def login(username, password):
     df = load_users_df()
 
     if df.empty:
-        st.error("Google Sheet không có dữ liệu người dùng.")
+        st.error("CSDL không có dữ liệu người dùng.")
         return False
 
     # Tự nhận diện cột username / password
@@ -108,7 +108,7 @@ def login(username, password):
 
     if username_col is None or password_col is None:
         st.error(
-            "Không tìm thấy cột username/password trong Google Sheet.\n\n"
+            "Không tìm thấy cột username/password trong CSDL.\n\n"
             "Các tên cột chấp nhận được:\n"
             "- Username: username, user, tendangnhap, ten_dang_nhap\n"
             "- Password: password, matkhau, pass"
@@ -158,7 +158,7 @@ def login(username, password):
 def set_first_login_done(row_idx):
     """
     Ghi cờ đã hoàn thành đăng nhập lần đầu tiên (first_login_done = 'yes')
-    lên Google Sheet.
+    lên CSDL.
     """
     ws = get_worksheet()
     col_num = ensure_column(ws, "first_login_done")
@@ -170,7 +170,7 @@ def set_first_login_done(row_idx):
 
 def update_password_first_login(selected_lop, selected_namhoc, new_password, confirm_password):
     """
-    Đổi mật khẩu + cập nhật LỚP và NĂM HỌC cho lần đăng nhập đầu tiên.
+    Đổi mật khẩu:
     """
     if st.session_state.user is None:
         st.error("Bạn chưa đăng nhập.")
@@ -191,7 +191,7 @@ def update_password_first_login(selected_lop, selected_namhoc, new_password, con
         return
 
     ws = get_worksheet()
-    sheet_row_number = row_idx + 2  # df index 0 tương ứng với dòng 2 trên sheet
+    sheet_row_number = row_idx + 2  # df index 0 tương ứng với dòng 2 trên CSDL
 
     # Xác định cột password, lớp, năm học
     password_col_name = find_column(df, ["password", "matkhau", "pass"])
@@ -199,7 +199,7 @@ def update_password_first_login(selected_lop, selected_namhoc, new_password, con
     namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
 
     if password_col_name is None:
-        st.error("Không tìm thấy cột password trong Google Sheet.")
+        st.error("Không tìm thấy cột password trong CSDL.")
         return
 
     # Cập nhật mật khẩu
@@ -240,7 +240,7 @@ def update_password_first_login(selected_lop, selected_namhoc, new_password, con
 
 def update_password_later(selected_lop, selected_namhoc, new_password, confirm_password):
     """
-    Đổi mật khẩu + cập nhật LỚP & NĂM HỌC cho các lần đăng nhập sau.
+    Đổi mật khẩu cho các lần đăng nhập sau.
     """
     if st.session_state.user is None:
         st.error("Bạn chưa đăng nhập.")
@@ -268,7 +268,7 @@ def update_password_later(selected_lop, selected_namhoc, new_password, confirm_p
     namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
 
     if password_col_name is None:
-        st.error("Không tìm thấy cột password trong Google Sheet.")
+        st.error("Không tìm thấy cột password trong CSDL.")
         return
 
     # Cập nhật mật khẩu
@@ -356,7 +356,7 @@ def show_main_page():
     row_idx = user_info["row_index"]
 
     if row_idx < 0 or row_idx >= len(df):
-        st.error("Không tìm thấy dữ liệu người dùng trong Google Sheet.")
+        st.error("Không tìm thấy dữ liệu người dùng trong CSDL.")
         return
 
     row = df.iloc[row_idx]
@@ -366,7 +366,7 @@ def show_main_page():
     # Thanh trên cùng: tiêu đề + họ tên + nút đăng xuất
     top_col1, top_col2, top_col3 = st.columns([3, 2, 1])
     with top_col1:
-        st.title("Đăng ký phương tiện đến trường")
+        st.title("Đăng ký phương tiện đến trường THPT Nguyễn Trãi")
     with top_col2:
         st.markdown(f"👤 **{full_name}**")
     with top_col3:
@@ -397,7 +397,7 @@ def show_main_page():
         if current_lop:
             lop_options = [current_lop]
         else:
-            lop_options = ["10A1", "10A2", "11A1", "12A1"]
+            lop_options = ["101", "102", "111", "121"]
     default_lop_index = (
         lop_options.index(current_lop) if current_lop in lop_options else 0
     )
@@ -454,7 +454,7 @@ def show_main_page():
 
     col_pw1, col_pw2 = st.columns([1, 3])
     with col_pw1:
-        if st.button("Thay đổi mật khẩu / lớp / năm học"):
+        if st.button("Thay đổi mật khẩu"):
             st.session_state.show_change_pw = not st.session_state.show_change_pw
 
     with col_pw2:
@@ -486,9 +486,10 @@ def show_main_page():
     st.markdown("---")
 
     # ========== C. ĐĂNG KÝ / SỬA THÔNG TIN PHƯƠNG TIỆN ==========
-    st.subheader("Đăng ký / sửa thông tin phương tiện đến trường")
+    st.subheader("Đăng ký / sửa thông tin phương tiện đến trường THPT Nguyễn Trãi")
 
     vehicle_options = [
+        " ",
         "Xe gắn máy",
         "Xe máy điện",
         "Xe đạp điện",
@@ -526,7 +527,7 @@ def show_main_page():
 # =========================
 
 def main():
-    st.set_page_config(page_title="Đăng ký phương tiện đến trường", page_icon="🚲")
+    st.set_page_config(page_title="Đăng ký phương tiện đến trường THPT Nguyễn Trãi", page_icon="🚲")
     init_session_state()
 
     if st.session_state.page == "login" or st.session_state.user is None:
