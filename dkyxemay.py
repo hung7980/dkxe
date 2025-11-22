@@ -278,10 +278,16 @@ def show_main_page():
     st.info(f"Xin chào, **{user['username']}**")
 
     # Nút đăng xuất
-    if st.button("Đăng xuất"):
-        st.session_state.user = None
-        st.session_state.page = "login"
+   if st.button("Đăng xuất"):
+    st.session_state.user = None
+    st.session_state.page = "login"
+
+    # Dùng rerun phù hợp với phiên bản Streamlit
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
         st.experimental_rerun()
+   
 
     st.markdown("---")
 
