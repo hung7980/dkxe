@@ -230,7 +230,7 @@ def update_password_first_login(selected_lop, selected_namhoc, new_password, con
     # Xoá cache để lần sau load lại dữ liệu mới
     load_users_df.clear()
 
-    st.success("Đã cập nhật mật khẩu, lớp và năm học cho lần đăng nhập đầu tiên.")
+    st.success("Đã cập nhật mật khẩu thành công.")
     # Sau khi xong, cho rerun để chuyển sang màn hình đăng ký phương tiện
     if hasattr(st, "rerun"):
         st.rerun()
@@ -332,18 +332,18 @@ def update_vehicle(ten_pt, loai_pt, bien_so):
 # =========================
 
 def show_login_page():
-    st.title("Đăng nhập hệ thống đăng ký phương tiện")
+    st.title("Đăng nhập hệ thống đăng ký phương tiện đến Trường THPT Nguyễn Trãi.")
 
-    username = st.text_input("Tên đăng nhập (username)")
+    username = st.text_input("Tên đăng nhập (Mã Moet của học sinh)")
     password = st.text_input("Mật khẩu", type="password")
 
     if st.button("Đăng nhập"):
         if username.strip() == "" or password.strip() == "":
-            st.error("Vui lòng nhập đầy đủ username và mật khẩu.")
+            st.error("Vui lòng nhập đầy đủ mã Moet của học sinh và mật khẩu.")
         else:
             ok = login(username, password)
             if not ok:
-                st.error("Sai username hoặc mật khẩu.")
+                st.error("Sai mã Moet của học sinh hoặc mật khẩu.")
 
 
 # =========================
