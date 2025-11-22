@@ -168,9 +168,9 @@ def set_first_login_done(row_idx):
     load_users_df.clear()
 
 
-def update_password_first_login(selected_namhoc, new_password, confirm_password):
+def update_password_first_login(selected_lop, selected_namhoc, new_password, confirm_password):
     """
-    Đổi mật khẩu + cập nhật năm học cho lần đăng nhập đầu tiên.
+    Đổi mật khẩu + cập nhật LỚP và NĂM HỌC cho lần đăng nhập đầu tiên.
     """
     if st.session_state.user is None:
         st.error("Bạn chưa đăng nhập.")
@@ -191,24 +191,28 @@ def update_password_first_login(selected_namhoc, new_password, confirm_password)
         return
 
     ws = get_worksheet()
-    sheet_row_number = row_idx + 2
+    sheet_row_number = row_idx + 2  # df index 0 tương ứng với dòng 2 trên sheet
 
-    # Xác định cột password & namhoc
-    password_col_name = find_column(df, ["password", "matkhau", "pass"])
+    # Xác định cột password, lớp, năm học
+    password_col_name = find_column(df, ["password", "matkhau, pass"])
+    lop_col_name = find_column(df, ["lop", "lớp", "tenlop", "ten_lop", "class"])
     namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
 
     if password_col_name is None:
         st.error("Không tìm thấy cột password trong Google Sheet.")
         return
 
-    header = ws.row_values(1)
-
     # Cập nhật mật khẩu
     pass_col_num = ensure_column(ws, password_col_name)
     ws.update_cell(sheet_row_number, pass_col_num, new_password)
 
+    # Cập nhật lớp
+    if lop_col_name is not None and selected_lop:
+        lop_col_num = ensure_column(ws, lop_col_name)
+        ws.update_cell(sheet_row_number, lop_col_num, selected_lop)
+
     # Cập nhật năm học
-    if namhoc_col_name is not None:
+    if namhoc_col_name is not None and selected_namhoc:
         namhoc_col_num = ensure_column(ws, namhoc_col_name)
         ws.update_cell(sheet_row_number, namhoc_col_num, selected_namhoc)
 
@@ -218,18 +222,23 @@ def update_password_first_login(selected_namhoc, new_password, confirm_password)
     # Cập nhật lại session_state
     st.session_state.user["first_login_done"] = True
     st.session_state.user["data"]["password"] = new_password
-    if namhoc_col_name is not None:
+    if lop_col_name is not None and selected_lop:
+        st.session_state.user["data"][lop_col_name] = selected_lop
+    if namhoc_col_name is not None and selected_namhoc:
         st.session_state.user["data"][namhoc_col_name] = selected_namhoc
 
     # Xoá cache để lần sau load lại dữ liệu mới
     load_users_df.clear()
 
-    st.success("Đã cập nhật mật khẩu và năm học cho lần đăng nhập đầu tiên.")
+    st.success("Đã cập nhật mật khẩu, lớp và năm học cho lần đăng nhập đầu tiên.")
     # Sau khi xong, cho rerun để chuyển sang màn hình đăng ký phương tiện
     if hasattr(st, "rerun"):
         st.rerun()
     elif hasattr(st, "experimental_rerun"):
         st.experimental_rerun()
+
+
+
 
 
 def update_password_later(new_password, confirm_password):
@@ -354,6 +363,8 @@ def show_main_page():
 
     st.markdown("---")
 
+   
+
     # ========== A. LẦN ĐĂNG NHẬP ĐẦU TIÊN: BẮT BUỘC ĐỔI MẬT KHẨU + NĂM HỌC ==========
     if not first_login_done:
         st.subheader("Thiết lập tài khoản lần đầu")
@@ -396,6 +407,7 @@ def show_main_page():
 
         # Chưa xong lần đăng nhập đầu thì KHÔNG cho vào phần phương tiện
         return
+
 
     # ========== B. CÁC LẦN ĐĂNG NHẬP SAU: NÚT THAY ĐỔI MẬT KHẨU ==========
     st.subheader("Thông tin tài khoản")
