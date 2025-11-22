@@ -278,16 +278,16 @@ def show_main_page():
     st.info(f"Xin chào, **{user['username']}**")
 
     # Nút đăng xuất
-   if st.button("Đăng xuất"):
-    st.session_state.user = None
-    st.session_state.page = "login"
+    if st.button("Đăng xuất"):
+        st.session_state.user = None
+        st.session_state.page = "login"
 
-    # Dùng rerun phù hợp với phiên bản Streamlit
-    if hasattr(st, "rerun"):
-        st.rerun()
-    elif hasattr(st, "experimental_rerun"):
-        st.experimental_rerun()
-   
+        # Dùng rerun phù hợp với phiên bản Streamlit
+        if hasattr(st, "rerun"):
+            st.rerun()
+        elif hasattr(st, "experimental_rerun"):
+            st.experimental_rerun()
+
     st.markdown("---")
 
     # ======= LẤY DỮ LIỆU HIỆN TẠI CỦA USER & DANH SÁCH LỚP / NĂM HỌC =======
@@ -314,6 +314,7 @@ def show_main_page():
     # Phòng trường hợp sheet chưa có dữ liệu, tránh lỗi selectbox rỗng
     if not lop_options:
         lop_options = [current_lop] if current_lop else ["Chưa có dữ liệu"]
+
     if not namhoc_options:
         namhoc_options = [current_namhoc] if current_namhoc else ["Chưa có dữ liệu"]
 
@@ -372,7 +373,7 @@ def show_main_page():
             options=vehicle_options,
             index=vehicle_options.index(default_loai_pt) if default_loai_pt in vehicle_options else 0,
         )
-        bien_so = st.text_input("Biển số phương tiện", value=default_bien_so)
+        bien_so = st.text_input("Biển số phương tiện (có thể bỏ trống)", value=default_bien_so)
 
         submitted_vehicle = st.form_submit_button("Lưu thông tin")
 
@@ -383,8 +384,10 @@ def show_main_page():
 
     # 4.3. Nếu là admin → cho phép cập nhật/sửa toàn bộ dữ liệu
     if user["username"] == "admin":
-        with st.expander("👑 Bảng dữ liệu ", expanded=False):
+        with st.expander("👑 Bảng dữ liệu (Admin có thể sửa trực tiếp)", expanded=False):
             show_admin_editor()
+
+
 
 # =========================
 # 5. MAIN
