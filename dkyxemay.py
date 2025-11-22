@@ -2,7 +2,7 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
-import json 
+import json
 
 # =========================
 # 1. KẾT NỐI GOOGLE SHEETS
@@ -10,19 +10,14 @@ import json
 
 @st.cache_resource
 def get_gsheet_client():
-    # Lấy JSON service account từ secrets
+    # Đọc service account từ secrets
     raw_sa = st.secrets["gcp_service_account"]
 
-    # Nếu Boss đang lưu nguyên file JSON trong secrets (dạng chuỗi) thì cần parse
+    # Nếu Boss lưu dạng JSON string trong secrets
     if isinstance(raw_sa, str):
-        try:
-            sa_info = json.loads(raw_sa)
-        except Exception as e:
-            st.error("Không đọc được JSON trong gcp_service_account (secrets). Vui lòng kiểm tra lại.\n\nChi tiết: " + str(e))
-            st.stop()
+        sa_info = json.loads(raw_sa)
     else:
-        # Trường hợp Boss cấu hình theo dạng [gcp_service_account] trong TOML,
-        # st.secrets trả về dạng “dict-like”, dùng luôn được
+        # Nếu lưu dạng [gcp_service_account] trong TOML
         sa_info = dict(raw_sa)
 
     scope = [
@@ -32,6 +27,7 @@ def get_gsheet_client():
     creds = ServiceAccountCredentials.from_json_keyfile_dict(sa_info, scope)
     client = gspread.authorize(creds)
     return client
+
 
 @st.cache_data(ttl=60)
 def load_users_df():
@@ -43,19 +39,10 @@ def load_users_df():
     ws = sh.worksheet(worksheet_name)
 
     data = ws.get_all_records()
+    if not data:
+        return pd.DataFrame()
     df = pd.DataFrame(data)
     return df
-
-def find_column(df, candidates):
-    """
-    Tìm cột trong df theo danh sách tên gợi ý (không phân biệt hoa/thường).
-    Trả về tên cột thực tế trong df nếu tìm thấy, ngược lại trả về None.
-    """
-    lower_map = {c.lower(): c for c in df.columns}
-    for cand in candidates:
-        if cand.lower() in lower_map:
-            return lower_map[cand.lower()]
-    return None
 
 
 def get_worksheet():
@@ -67,24 +54,55 @@ def get_worksheet():
     ws = sh.worksheet(worksheet_name)
     return ws
 
+
+def ensure_column(ws, col_name):
+    """
+    Đảm bảo cột col_name tồn tại trên Google Sheet.
+    Trả về số thứ tự cột (1-based).
+    Nếu chưa có thì tự thêm vào header (hàng 1).
+    """
+    header = ws.row_values(1)
+    if col_name in header:
+        return header.index(col_name) + 1
+    else:
+        col_num = len(header) + 1
+        ws.update_cell(1, col_num, col_name)
+        return col_num
+
+
 # =========================
 # 2. HÀM HỖ TRỢ
 # =========================
 
 def init_session_state():
     if "user" not in st.session_state:
-        st.session_state.user = None   # {"username":..., "row_index":..., "data": {...}}
+        st.session_state.user = None  # {"username", "row_index", "full_name", "first_login_done", "data"}
     if "page" not in st.session_state:
-        st.session_state.page = "login"  # login / main
+        st.session_state.page = "login"
+    if "show_change_pw" not in st.session_state:
+        st.session_state.show_change_pw = False
+
+
+def find_column(df, candidates):
+    """
+    Tìm cột trong df theo danh sách tên gợi ý (không phân biệt hoa/thường).
+    Trả về tên cột thực tế trong df nếu tìm thấy, ngược lại None.
+    """
+    lower_map = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in lower_map:
+            return lower_map[cand.lower()]
+    return None
+
 
 def login(username, password):
     df = load_users_df()
 
     if df.empty:
-        st.error("Google Sheet không có dữ liệu user nào.")
+        st.error("Google Sheet không có dữ liệu người dùng.")
         return False
 
-    # Tự động nhận diện cột username / password
+    # Tự nhận diện cột username / password
     username_col = find_column(df, ["username", "user", "tendangnhap", "ten_dang_nhap"])
     password_col = find_column(df, ["password", "matkhau", "pass"])
 
@@ -97,148 +115,198 @@ def login(username, password):
         )
         return False
 
-    # Chuẩn hóa dữ liệu để so khớp: bỏ khoảng trắng, không phân biệt hoa/thường cho username
-    username_series = (
-        df[username_col]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-    password_series = (
-        df[password_col]
-        .astype(str)
-        .str.strip()
-    )
+    username_series = df[username_col].astype(str).str.strip().str.lower()
+    password_series = df[password_col].astype(str).str.strip()
 
     input_username = username.strip().lower()
     input_password = password.strip()
 
-    matches = df[
-        (username_series == input_username) &
-        (password_series == input_password)
-    ]
+    matches = df[(username_series == input_username) & (password_series == input_password)]
 
     if matches.empty:
-        # Debug nhẹ cho Boss (có thể bỏ sau này)
-        # st.write("DEBUG usernames:", username_series.tolist())
-        # st.write("DEBUG passwords:", password_series.tolist())
         return False
 
     row_idx = matches.index[0]
-    user_row = matches.iloc[0].to_dict()
+    row = matches.iloc[0]
+
+    # Họ tên
+    hoten_col = find_column(df, ["hoten", "ho_ten", "ho ten", "name", "fullname"])
+    if hoten_col is not None:
+        full_name = str(row.get(hoten_col, "")).strip()
+    else:
+        full_name = str(row.get(username_col, "")).strip()
+
+    # Cờ lần đăng nhập đầu tiên
+    first_login_col = find_column(df, ["first_login_done", "da_doi_mk", "first_login"])
+    if first_login_col is None:
+        first_login_done = False
+    else:
+        flag_val = str(row.get(first_login_col, "")).strip().lower()
+        first_login_done = flag_val in ["yes", "true", "1", "ok", "done", "x"]
 
     st.session_state.user = {
-        "username": df.loc[row_idx, username_col],
+        "username": str(row.get(username_col, "")).strip(),
         "row_index": row_idx,
-        "data": user_row,
+        "full_name": full_name,
+        "first_login_done": first_login_done,
+        "data": row.to_dict(),
     }
     st.session_state.page = "main"
     return True
 
 
+def set_first_login_done(row_idx):
+    """
+    Ghi cờ đã hoàn thành đăng nhập lần đầu tiên (first_login_done = 'yes')
+    lên Google Sheet.
+    """
+    ws = get_worksheet()
+    col_num = ensure_column(ws, "first_login_done")
+    sheet_row_number = row_idx + 2  # df index 0 tương ứng với dòng 2
+    ws.update_cell(sheet_row_number, col_num, "yes")
+    # Xoá cache để đọc lại có cột này
+    load_users_df.clear()
 
-def update_password(hoten, lop, namhoc, new_password, confirm_password):
+
+def update_password_first_login(selected_namhoc, new_password, confirm_password):
+    """
+    Đổi mật khẩu + cập nhật năm học cho lần đăng nhập đầu tiên.
+    """
     if st.session_state.user is None:
         st.error("Bạn chưa đăng nhập.")
         return
 
-    df = load_users_df()
-    row_idx = st.session_state.user["row_index"]
-    row = df.iloc[row_idx]
-
-    # Kiểm tra họ tên, lớp, năm học (so khớp cùng row)
-    if (
-        str(row.get("hoten", "")).strip().lower() != hoten.strip().lower()
-        or str(row.get("lop", "")).strip().lower() != lop.strip().lower()
-        or str(row.get("namhoc", "")).strip().lower() != namhoc.strip().lower()
-    ):
-        st.error("Họ tên / Lớp / Năm học không khớp với dữ liệu đã đăng ký.")
+    if not new_password or not confirm_password:
+        st.error("Vui lòng nhập đầy đủ mật khẩu mới và xác nhận.")
         return
 
     if new_password != confirm_password:
         st.error("Mật khẩu mới và xác nhận mật khẩu không trùng khớp.")
         return
 
-    ws = get_worksheet()
-
-    # df.index 0 tương ứng với hàng 2 trên sheet (hàng 1 là header)
-    sheet_row_number = row_idx + 2
-
-    header = ws.row_values(1)
-    if "password" not in header:
-        st.error("Không tìm thấy cột 'password' trong csdl.")
+    df = load_users_df()
+    row_idx = st.session_state.user["row_index"]
+    if row_idx < 0 or row_idx >= len(df):
+        st.error("Không tìm thấy người dùng trong dữ liệu.")
         return
 
-    col_password = header.index("password") + 1
-    ws.update_cell(sheet_row_number, col_password, new_password)
+    ws = get_worksheet()
+    sheet_row_number = row_idx + 2
 
-    # Xóa cache để lần load sau thấy dữ liệu mới
+    # Xác định cột password & namhoc
+    password_col_name = find_column(df, ["password", "matkhau", "pass"])
+    namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
+
+    if password_col_name is None:
+        st.error("Không tìm thấy cột password trong Google Sheet.")
+        return
+
+    header = ws.row_values(1)
+
+    # Cập nhật mật khẩu
+    pass_col_num = ensure_column(ws, password_col_name)
+    ws.update_cell(sheet_row_number, pass_col_num, new_password)
+
+    # Cập nhật năm học
+    if namhoc_col_name is not None:
+        namhoc_col_num = ensure_column(ws, namhoc_col_name)
+        ws.update_cell(sheet_row_number, namhoc_col_num, selected_namhoc)
+
+    # Đặt cờ đã đăng nhập lần đầu
+    set_first_login_done(row_idx)
+
+    # Cập nhật lại session_state
+    st.session_state.user["first_login_done"] = True
+    st.session_state.user["data"]["password"] = new_password
+    if namhoc_col_name is not None:
+        st.session_state.user["data"][namhoc_col_name] = selected_namhoc
+
+    # Xoá cache để lần sau load lại dữ liệu mới
     load_users_df.clear()
 
-    st.success("Đổi mật khẩu thành công!")
+    st.success("Đã cập nhật mật khẩu và năm học cho lần đăng nhập đầu tiên.")
+    # Sau khi xong, cho rerun để chuyển sang màn hình đăng ký phương tiện
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+
+
+def update_password_later(new_password, confirm_password):
+    """
+    Đổi mật khẩu cho các lần đăng nhập sau (chỉ đổi password).
+    """
+    if st.session_state.user is None:
+        st.error("Bạn chưa đăng nhập.")
+        return
+
+    if not new_password or not confirm_password:
+        st.error("Vui lòng nhập đầy đủ mật khẩu mới và xác nhận.")
+        return
+
+    if new_password != confirm_password:
+        st.error("Mật khẩu mới và xác nhận mật khẩu không trùng khớp.")
+        return
+
+    df = load_users_df()
+    row_idx = st.session_state.user["row_index"]
+    if row_idx < 0 or row_idx >= len(df):
+        st.error("Không tìm thấy người dùng trong dữ liệu.")
+        return
+
+    ws = get_worksheet()
+    sheet_row_number = row_idx + 2
+
+    password_col_name = find_column(df, ["password", "matkhau", "pass"])
+    if password_col_name is None:
+        st.error("Không tìm thấy cột password trong Google Sheet.")
+        return
+
+    pass_col_num = ensure_column(ws, password_col_name)
+    ws.update_cell(sheet_row_number, pass_col_num, new_password)
+
+    load_users_df.clear()
     st.session_state.user["data"]["password"] = new_password
+    st.success("Đổi mật khẩu thành công.")
 
 
 def update_vehicle(ten_pt, loai_pt, bien_so):
+    """
+    Lưu TÊN PHƯƠNG TIỆN + LOẠI PHƯƠNG TIỆN + BIỂN SỐ vào cùng dòng của user.
+    """
     if st.session_state.user is None:
         st.error("Bạn chưa đăng nhập.")
         return
 
     df = load_users_df()
     row_idx = st.session_state.user["row_index"]
+    if row_idx < 0 or row_idx >= len(df):
+        st.error("Không tìm thấy người dùng trong dữ liệu.")
+        return
+
     ws = get_worksheet()
-
     sheet_row_number = row_idx + 2
-    header = ws.row_values(1)
 
-    columns_map = {
-        "ten_phuong_tien": ten_pt,
-        "loai_phuong_tien": loai_pt,
-        "bien_so": bien_so,
-    }
+    # Đảm bảo các cột tồn tại
+    col_ten_pt = ensure_column(ws, "ten_phuong_tien")
+    col_loai_pt = ensure_column(ws, "loai_phuong_tien")
+    col_bien_so = ensure_column(ws, "bien_so")
 
-    for col_name, value in columns_map.items():
-        if col_name in header:
-            col_num = header.index(col_name) + 1
-            ws.update_cell(sheet_row_number, col_num, value)
+    # Cập nhật dữ liệu
+    ws.update_cell(sheet_row_number, col_ten_pt, ten_pt)
+    ws.update_cell(sheet_row_number, col_loai_pt, loai_pt)
+    ws.update_cell(sheet_row_number, col_bien_so, bien_so)
 
     load_users_df.clear()
     st.success("Lưu thông tin phương tiện thành công!")
 
-
-def save_full_table(edited_df: pd.DataFrame):
-    """
-    Admin sửa bảng dữ liệu bằng data_editor rồi bấm 'Lưu thay đổi toàn bảng'.
-    Hàm này cập nhật lại toàn bộ sheet (trừ dòng header).
-    """
-    ws = get_worksheet()
-    header = ws.row_values(1)
-
-    # Đảm bảo giữ đúng thứ tự cột như trên sheet
-    cols_in_df = [c for c in header if c in edited_df.columns]
-    missing_cols = [c for c in header if c not in edited_df.columns]
-
-    full_df = pd.DataFrame()
-    for c in header:
-        if c in edited_df.columns:
-            full_df[c] = edited_df[c]
-        else:
-            full_df[c] = ""
-
-    values = full_df[header].astype(str).values.tolist()
-
-    ws.update("A1", [header] + values)
-
-    load_users_df.clear()
-    st.success("Đã lưu toàn bộ thay đổi dữ liệu lên csdl.")
 
 # =========================
 # 3. GIAO DIỆN LOGIN
 # =========================
 
 def show_login_page():
-    st.title("Đăng nhập hệ thống")
-    st.write("Vui lòng đăng nhập bằng tài khoản đã lưu trên csdl.")
+    st.title("Đăng nhập hệ thống đăng ký phương tiện")
 
     username = st.text_input("Tên đăng nhập (username)")
     password = st.text_input("Mật khẩu", type="password")
@@ -256,101 +324,100 @@ def show_login_page():
 # 4. GIAO DIỆN SAU ĐĂNG NHẬP
 # =========================
 
-def show_admin_editor():
-    st.subheader("Quản trị: Cập nhật / sửa toàn bộ dữ liệu")
-    st.caption("Chỉ nên dùng với tài khoản admin. Mọi thay đổi sẽ ghi trực tiếp lên csdl.")
-
-    df = load_users_df()
-    edited_df = st.data_editor(
-        df,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="admin_editor"
-    )
-
-    if st.button("💾 Lưu thay đổi toàn bảng"):
-        save_full_table(edited_df)
-
 def show_main_page():
-    st.title("Hệ thống đăng ký phương tiện đến trường")
-
-    user = st.session_state.user
-    st.info(f"Xin chào, **{user['username']}**")
-
-    # Nút đăng xuất
-    if st.button("Đăng xuất"):
-        st.session_state.user = None
-        st.session_state.page = "login"
-
-        # Dùng rerun phù hợp với phiên bản Streamlit
-        if hasattr(st, "rerun"):
-            st.rerun()
-        elif hasattr(st, "experimental_rerun"):
-            st.experimental_rerun()
-
-    st.markdown("---")
-
-    # ======= LẤY DỮ LIỆU HIỆN TẠI CỦA USER & DANH SÁCH LỚP / NĂM HỌC =======
     df = load_users_df()
-    row_idx = user["row_index"]
+    user_info = st.session_state.user
+    row_idx = user_info["row_index"]
+
+    if row_idx < 0 or row_idx >= len(df):
+        st.error("Không tìm thấy dữ liệu người dùng trong Google Sheet.")
+        return
+
     row = df.iloc[row_idx]
+    full_name = user_info.get("full_name", user_info["username"])
+    first_login_done = user_info.get("first_login_done", False)
 
-    # Giá trị hiện tại của user
-    current_hoten = str(row.get("hoten", ""))
-    current_lop = str(row.get("lop", ""))
-    current_namhoc = str(row.get("namhoc", ""))
-
-    # Danh sách lop và namhoc từ Google Sheet
-    if "lop" in df.columns:
-        lop_options = sorted([str(x) for x in df["lop"].dropna().unique().tolist()])
-    else:
-        lop_options = []
-
-    if "namhoc" in df.columns:
-        namhoc_options = sorted([str(x) for x in df["namhoc"].dropna().unique().tolist()])
-    else:
-        namhoc_options = []
-
-    # Phòng trường hợp sheet chưa có dữ liệu, tránh lỗi selectbox rỗng
-    if not lop_options:
-        lop_options = [current_lop] if current_lop else ["Chưa có dữ liệu"]
-
-    if not namhoc_options:
-        namhoc_options = [current_namhoc] if current_namhoc else ["Chưa có dữ liệu"]
-
-    # Xác định index mặc định cho selectbox
-    default_lop_index = lop_options.index(current_lop) if current_lop in lop_options else 0
-    default_namhoc_index = namhoc_options.index(current_namhoc) if current_namhoc in namhoc_options else 0
-
-    # 4.1. Khối đổi mật khẩu
-    st.subheader("Đổi mật khẩu")
-
-    with st.form("change_password_form"):
-        hoten = st.text_input("Họ và tên (đã đăng ký)", value=current_hoten)
-
-        lop = st.selectbox(
-            "Lớp (chọn từ danh sách)",
-            options=lop_options,
-            index=default_lop_index,
-        )
-
-        namhoc = st.selectbox(
-            "Năm học (chọn từ danh sách)",
-            options=namhoc_options,
-            index=default_namhoc_index,
-        )
-
-        new_password = st.text_input("Mật khẩu mới", type="password")
-        confirm_password = st.text_input("Xác nhận mật khẩu mới", type="password")
-
-        submitted_pw = st.form_submit_button("Đổi mật khẩu")
-
-        if submitted_pw:
-            update_password(hoten, lop, namhoc, new_password, confirm_password)
+    # Thanh trên cùng: tiêu đề + họ tên + nút đăng xuất
+    top_col1, top_col2, top_col3 = st.columns([3, 2, 1])
+    with top_col1:
+        st.title("Đăng ký phương tiện đến trường")
+    with top_col2:
+        st.markdown(f"👤 **{full_name}**")
+    with top_col3:
+        if st.button("Đăng xuất"):
+            st.session_state.user = None
+            st.session_state.page = "login"
+            if hasattr(st, "rerun"):
+                st.rerun()
+            elif hasattr(st, "experimental_rerun"):
+                st.experimental_rerun()
 
     st.markdown("---")
 
-    # 4.2. Khối đăng ký phương tiện
+    # ========== A. LẦN ĐĂNG NHẬP ĐẦU TIÊN: BẮT BUỘC ĐỔI MẬT KHẨU + NĂM HỌC ==========
+    if not first_login_done:
+        st.subheader("Thiết lập tài khoản lần đầu")
+        st.info("Đây là lần đăng nhập đầu tiên của bạn. Vui lòng đổi mật khẩu và chọn năm học, sau đó bấm **Lưu**.")
+
+        # Lấy danh sách năm học duy nhất
+        namhoc_col_name = find_column(df, ["namhoc", "nam_hoc", "nam hoc"])
+        namhoc_options = []
+        current_namhoc = ""
+        if namhoc_col_name is not None:
+            namhoc_options = sorted(
+                [str(x) for x in df[namhoc_col_name].dropna().unique().tolist()]
+            )
+            current_namhoc = str(row.get(namhoc_col_name, "")).strip()
+
+        if not namhoc_options:
+            namhoc_options = ["2024-2025", "2025-2026", "2026-2027"]
+
+        default_namhoc_index = (
+            namhoc_options.index(current_namhoc)
+            if current_namhoc in namhoc_options
+            else 0
+        )
+
+        with st.form("first_login_form"):
+            st.text_input("Họ và tên", value=full_name, disabled=True)
+            selected_namhoc = st.selectbox(
+                "Năm học",
+                options=namhoc_options,
+                index=default_namhoc_index,
+            )
+
+            new_password = st.text_input("Mật khẩu mới", type="password")
+            confirm_password = st.text_input("Xác nhận mật khẩu mới", type="password")
+
+            submitted_first = st.form_submit_button("Lưu")
+
+            if submitted_first:
+                update_password_first_login(selected_namhoc, new_password, confirm_password)
+
+        # Chưa xong lần đăng nhập đầu thì KHÔNG cho vào phần phương tiện
+        return
+
+    # ========== B. CÁC LẦN ĐĂNG NHẬP SAU: NÚT THAY ĐỔI MẬT KHẨU ==========
+    st.subheader("Thông tin tài khoản")
+
+    col_pw1, col_pw2 = st.columns([1, 3])
+    with col_pw1:
+        if st.button("Thay đổi mật khẩu"):
+            st.session_state.show_change_pw = not st.session_state.show_change_pw
+
+    with col_pw2:
+        if st.session_state.show_change_pw:
+            with st.form("change_pw_form"):
+                new_pw = st.text_input("Mật khẩu mới", type="password")
+                confirm_pw = st.text_input("Xác nhận mật khẩu mới", type="password")
+                submitted_change = st.form_submit_button("Lưu mật khẩu")
+
+                if submitted_change:
+                    update_password_later(new_pw, confirm_pw)
+
+    st.markdown("---")
+
+    # ========== C. ĐĂNG KÝ / SỬA THÔNG TIN PHƯƠNG TIỆN ==========
     st.subheader("Đăng ký / sửa thông tin phương tiện đến trường")
 
     vehicle_options = [
@@ -362,31 +429,29 @@ def show_main_page():
         "Phương tiện khác",
     ]
 
-    default_ten_pt = row.get("ten_phuong_tien", "")
-    default_loai_pt = row.get("loai_phuong_tien", vehicle_options[0])
-    default_bien_so = row.get("bien_so", "")
+    # Giá trị mặc định (nếu đã từng lưu)
+    ten_pt_default = str(row.get("ten_phuong_tien", "")).strip()
+    loai_pt_default = str(row.get("loai_phuong_tien", vehicle_options[0])).strip()
+    bien_so_default = str(row.get("bien_so", "")).strip()
 
     with st.form("vehicle_form"):
-        ten_pt = st.text_input("Tên phương tiện", value=default_ten_pt)
+        ten_pt = st.text_input("Tên phương tiện", value=ten_pt_default)
         loai_pt = st.selectbox(
             "Loại phương tiện",
             options=vehicle_options,
-            index=vehicle_options.index(default_loai_pt) if default_loai_pt in vehicle_options else 0,
+            index=vehicle_options.index(loai_pt_default)
+            if loai_pt_default in vehicle_options
+            else 0,
         )
-        bien_so = st.text_input("Biển số phương tiện (có thể bỏ trống)", value=default_bien_so)
+        bien_so = st.text_input(
+            "Biển số phương tiện (có thể bỏ trống)",
+            value=bien_so_default,
+        )
 
-        submitted_vehicle = st.form_submit_button("Lưu thông tin")
+        submitted_vehicle = st.form_submit_button("Lưu thông tin phương tiện")
 
         if submitted_vehicle:
             update_vehicle(ten_pt, loai_pt, bien_so)
-
-    st.markdown("---")
-
-    # 4.3. Nếu là admin → cho phép cập nhật/sửa toàn bộ dữ liệu
-    if user["username"] == "admin":
-        with st.expander("👑 Bảng dữ liệu (Admin có thể sửa trực tiếp)", expanded=False):
-            show_admin_editor()
-
 
 
 # =========================
@@ -394,13 +459,14 @@ def show_main_page():
 # =========================
 
 def main():
-    st.set_page_config(page_title="Đăng ký phương tiện đến Trường THPT Nguyễn Trãi", page_icon="🚲")
+    st.set_page_config(page_title="Đăng ký phương tiện đến trường", page_icon="🚲")
     init_session_state()
 
     if st.session_state.page == "login" or st.session_state.user is None:
         show_login_page()
     else:
         show_main_page()
+
 
 if __name__ == "__main__":
     main()
