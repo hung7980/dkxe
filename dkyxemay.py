@@ -46,6 +46,18 @@ def load_users_df():
     df = pd.DataFrame(data)
     return df
 
+def find_column(df, candidates):
+    """
+    Tìm cột trong df theo danh sách tên gợi ý (không phân biệt hoa/thường).
+    Trả về tên cột thực tế trong df nếu tìm thấy, ngược lại trả về None.
+    """
+    lower_map = {c.lower(): c for c in df.columns}
+    for cand in candidates:
+        if cand.lower() in lower_map:
+            return lower_map[cand.lower()]
+    return None
+
+
 def get_worksheet():
     client = get_gsheet_client()
     spreadsheet_id = st.secrets["sheets"]["spreadsheet_id"]
@@ -68,25 +80,61 @@ def init_session_state():
 def login(username, password):
     df = load_users_df()
 
-    if "username" not in df.columns or "password" not in df.columns:
-        st.error("Thiếu cột 'username' hoặc 'password' trong csdl.")
+    if df.empty:
+        st.error("Google Sheet không có dữ liệu user nào.")
         return False
 
-    matches = df[(df["username"] == username) & (df["password"] == password)]
+    # Tự động nhận diện cột username / password
+    username_col = find_column(df, ["username", "user", "tendangnhap", "ten_dang_nhap"])
+    password_col = find_column(df, ["password", "matkhau", "pass"])
+
+    if username_col is None or password_col is None:
+        st.error(
+            "Không tìm thấy cột username/password trong Google Sheet.\n\n"
+            "Các tên cột chấp nhận được:\n"
+            "- Username: username, user, tendangnhap, ten_dang_nhap\n"
+            "- Password: password, matkhau, pass"
+        )
+        return False
+
+    # Chuẩn hóa dữ liệu để so khớp: bỏ khoảng trắng, không phân biệt hoa/thường cho username
+    username_series = (
+        df[username_col]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+    password_series = (
+        df[password_col]
+        .astype(str)
+        .str.strip()
+    )
+
+    input_username = username.strip().lower()
+    input_password = password.strip()
+
+    matches = df[
+        (username_series == input_username) &
+        (password_series == input_password)
+    ]
 
     if matches.empty:
+        # Debug nhẹ cho Boss (có thể bỏ sau này)
+        # st.write("DEBUG usernames:", username_series.tolist())
+        # st.write("DEBUG passwords:", password_series.tolist())
         return False
 
     row_idx = matches.index[0]
     user_row = matches.iloc[0].to_dict()
 
     st.session_state.user = {
-        "username": username,
+        "username": df.loc[row_idx, username_col],
         "row_index": row_idx,
         "data": user_row,
     }
     st.session_state.page = "main"
     return True
+
 
 
 def update_password(hoten, lop, namhoc, new_password, confirm_password):
@@ -202,6 +250,7 @@ def show_login_page():
             ok = login(username, password)
             if not ok:
                 st.error("Sai username hoặc mật khẩu.")
+
 
 # =========================
 # 4. GIAO DIỆN SAU ĐĂNG NHẬP
